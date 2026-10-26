@@ -596,6 +596,94 @@ class TestCheckRelationDependencies:
                     if r["source"] == "a"]) == 1
 
 
+class TestRecoverInterruptedApply:
+    """★ 审计未验第 1 条: 回归门跑到一半进程被杀 → 边留库、提议停在 applied 却没过闸。
+
+    进程死掉 = 端点那层 except/rollback 一行都没跑。这里用"apply_proposal 返回后
+    直接丢掉 out (内存快照)"模拟, 恢复只能靠库里落盘的东西。
+    """
+
+    def _relation_row(self, store, via="a.X=b.X"):
+        return store._conn.execute(
+            "SELECT * FROM relation WHERE via=?", (via,)).fetchone()
+
+    def test_快照在落库前已落盘(self, store, monkeypatch):
+        """顺序反证: handler 执行那一刻 journal 必须已是 applying (否则有"边已落、快照没存"窗口)。"""
+        pid = _approved_relation_proposal(store)
+        seen = {}
+        orig = store.upsert_relation
+
+        def spy(p):
+            seen["journal"] = store.list_proposals()[0]["apply_journal_json"]
+            return orig(p)
+        monkeypatch.setattr(store, "upsert_relation", spy)
+        apply_proposal(store.list_proposals()[0], store)
+        assert json.loads(seen["journal"])["phase"] == "applying"
+
+    def test_add中途崩_重启后新边被硬删且提议failed(self, store):
+        pid = _approved_relation_proposal(store)
+        assert apply_proposal(store.list_proposals()[0], store)["ok"] is True
+        assert self._relation_row(store) is not None   # 落了库, 然后进程"死了"
+
+        from capabilities.ontology.selfevolve.apply import recover_interrupted_applies
+        got = recover_interrupted_applies(store)
+
+        assert got == [{"id": pid, "from_phase": "applying"}]
+        assert self._relation_row(store) is None, "没过闸的边重启后仍在库里"
+        p = store.list_proposals()[0]
+        assert p["patch_status"] == "failed" and p["regression_ok"] == 0
+        assert json.loads(p["apply_journal_json"])["phase"] == "recovered"
+        assert recover_interrupted_applies(store) == [], "恢复必须幂等, 二次启动不许再动"
+
+    def test_覆盖已有边中途崩_重启后整行还原人工label(self, store):
+        store.upsert_relation({"source": "a", "target": "b", "source_col": "X",
+                               "target_col": "X", "type": "MANY_TO_ONE",
+                               "label": "人工精校"})
+        _approved_relation_proposal(store, label="机器猜的")
+        apply_proposal(store.list_proposals()[0], store)
+        assert self._relation_row(store)["label"] == "机器猜的"
+
+        from capabilities.ontology.selfevolve.apply import recover_interrupted_applies
+        recover_interrupted_applies(store)
+        assert self._relation_row(store)["label"] == "人工精校"
+
+    def test_retire中途崩_重启后软删的边恢复active(self, store):
+        store.upsert_relation({"source": "a", "target": "b", "source_col": "X",
+                               "target_col": "X", "type": "MANY_TO_ONE", "label": "l"})
+        pid = store.insert_proposal(
+            "relation", {"source": "a", "target": "b", "via": "a.X=b.X",
+                         "source_col": "X", "target_col": "X"}, "r", direction="retire")
+        store.patch_proposal_review(pid, "approved")
+        assert apply_proposal(store.list_proposals()[0], store)["ok"] is True
+        assert self._relation_row(store)["status"] == 0
+
+        from capabilities.ontology.selfevolve.apply import recover_interrupted_applies
+        recover_interrupted_applies(store)
+        assert self._relation_row(store)["status"] == 1
+
+    def test_只占位没拍快照就崩_不碰relation只置failed(self, store):
+        store.upsert_relation({"source": "a", "target": "b", "source_col": "X",
+                               "target_col": "X", "type": "MANY_TO_ONE", "label": "l"})
+        pid = _approved_relation_proposal(store)
+        assert store.claim_for_apply(pid) is True     # 占位后、快照前进程"死了"
+
+        from capabilities.ontology.selfevolve.apply import recover_interrupted_applies
+        assert recover_interrupted_applies(store) == [{"id": pid, "from_phase": "claimed"}]
+        assert self._relation_row(store)["status"] == 1, "claimed 阶段 relation 没碰过, 不许回滚"
+        assert store.list_proposals()[0]["patch_status"] == "failed"
+
+    def test_正常走完终态的提议_恢复不碰(self, store):
+        """对照组: 回归门判过的 (applied+ok=1) 和历史老数据 (journal=NULL) 都不许动。"""
+        pid = _approved_relation_proposal(store)
+        apply_proposal(store.list_proposals()[0], store)
+        store.patch_proposal_patch_status(pid, "applied", regression_ok=1)
+
+        from capabilities.ontology.selfevolve.apply import recover_interrupted_applies
+        assert recover_interrupted_applies(store) == []
+        assert self._relation_row(store)["status"] == 1
+        assert store.list_proposals()[0]["patch_status"] == "applied"
+
+
 class TestRunRegression:
     """CQ 回归门 (mock run_one_cq; 真库端到端走 manual smoke)。"""
 

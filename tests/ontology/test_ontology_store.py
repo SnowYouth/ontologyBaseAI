@@ -1078,6 +1078,58 @@ class TestProposalCRUD:
         store.release_apply_claim(pid)
         assert store.list_proposals()[0]["patch_status"] == "pending"
 
+    def test_apply_journal_占位写claimed_终态与退还都清空(self, store):
+        """★ 落库进行中的标记必须落盘 (进程中途死掉, 内存里的快照跟着没了)。"""
+        pid = store.insert_proposal("relation", {"s": "a"}, "r")
+        store.patch_proposal_review(pid, "approved")
+        assert store.claim_for_apply(pid) is True
+        assert json.loads(store.list_proposals()[0]["apply_journal_json"]) == {"phase": "claimed"}
+
+        store.save_apply_snapshot(pid, {"via": "a.X=b.X", "existed": False}, "run-1")
+        j = json.loads(store.list_proposals()[0]["apply_journal_json"])
+        assert j == {"phase": "applying", "run_id": "run-1",
+                     "snapshot": {"via": "a.X=b.X", "existed": False}}
+        assert [p["id"] for p in store.list_interrupted_applies()] == [pid]
+
+        store.patch_proposal_patch_status(pid, "applied", regression_ok=1)
+        assert store.list_proposals()[0]["apply_journal_json"] is None
+        assert store.list_interrupted_applies() == []
+
+        pid2 = store.insert_proposal("relation", {"s": "b"}, "r")
+        store.patch_proposal_review(pid2, "approved")
+        store.claim_for_apply(pid2)
+        store.release_apply_claim(pid2)
+        assert [p for p in store.list_proposals() if p["id"] == pid2][0]["apply_journal_json"] is None
+
+    def test_老库proposal表无journal列_打开时补列且数据不动(self, tmp_path):
+        """真库是旧 schema (CREATE TABLE IF NOT EXISTS 不会补列), 必须 ALTER 补上。"""
+        import sqlite3
+        db = tmp_path / "old.db"
+        c = sqlite3.connect(db)
+        c.execute("CREATE TABLE proposal (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                  "kind TEXT NOT NULL DEFAULT 'relation', direction TEXT NOT NULL DEFAULT 'add', "
+                  "payload_json TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', "
+                  "review_status TEXT NOT NULL DEFAULT 'pending', "
+                  "patch_status TEXT NOT NULL DEFAULT 'pending' "
+                  "CHECK(patch_status IN ('pending','applied','failed')), "
+                  "proposed_at TEXT NOT NULL, proposed_by TEXT NOT NULL DEFAULT 'probe', "
+                  "reviewed_at TEXT, reviewed_by TEXT, review_note TEXT DEFAULT '', "
+                  "probe_result_json TEXT, regression_run_id TEXT, regression_ok INTEGER, "
+                  "tombstone_hit INTEGER DEFAULT 0, tombstone_note TEXT, status INTEGER DEFAULT 1)")
+        c.execute("INSERT INTO proposal (payload_json, proposed_at, patch_status) "
+                  "VALUES ('{}', 't0', 'applied')")
+        c.commit()
+        c.close()
+
+        s = OntologyStore(str(db))
+        try:
+            rows = s.list_proposals()
+            assert len(rows) == 1 and rows[0]["patch_status"] == "applied"
+            assert rows[0]["apply_journal_json"] is None
+        finally:
+            s.close()
+        OntologyStore(str(db)).close()  # 二次打开不许重复 ALTER 抛 duplicate column
+
     def test_软删proposal不出现在list(self, store):
         pid = store.insert_proposal("relation", {"s": "a"}, "r")
         store._conn.execute("UPDATE proposal SET status=0 WHERE id=?", (pid,))

@@ -61,6 +61,10 @@ def apply_proposal(proposal: dict, store) -> dict:
     try:
         # ★ 落库前拍快照: 回归门 (闸2) 在本函数之后跑, 拒绝时靠它精确还原 (见 rollback_apply)
         snapshot = _edge_snapshot(store, payload, proposal.get("direction"))
+        # ★ 快照先落盘再碰 relation: 进程死在落库后/回归门中, 启动时照它回滚
+        # (见 recover_interrupted_applies)。顺序反了就有"边已落、快照没存"的窗口。
+        store.save_apply_snapshot(proposal["id"], snapshot,
+                                  proposal.get("regression_run_id"))
         out = handler(payload, store)
     except Exception:
         store.release_apply_claim(proposal["id"])
@@ -206,6 +210,35 @@ def rollback_apply(store, snapshot: dict) -> None:
             "DELETE FROM relation WHERE source=? AND target=? AND via=?", key)
     store._conn.commit()
     _reload_ontology()
+
+
+def recover_interrupted_applies(store) -> list[dict]:
+    """启动时收拾上次没走到终态的 apply: 照落盘快照回滚, 提议置 failed。
+
+    apply 端点先落库再跑几分钟的回归门。进程在这期间被杀 (Ctrl+C / 被系统杀 /
+    断电), except 跑不到 → 边留在库里、提议停在 applied 却从没过闸。
+    - phase=applying: 快照已落盘, relation 可能已改 → rollback_apply (幂等:
+      没改过的边按快照还原也是原样)
+    - phase=claimed: 快照还没存, relation 一定没碰过 → 只置终态
+    置 failed 而非退回 pending, 与"回归门异常"同口径: 没判过的闸 = 没有闸。
+
+    ★ 只能在没有并发 apply 时调 (单进程启动时)。多 worker 部署会回滚别的 worker
+    正在跑的 apply —— 本项目单机单进程, 不支持多 worker。
+    返回 [{id, from_phase}], 供调用方落日志。
+    """
+    import datetime
+    recovered = []
+    for p in store.list_interrupted_applies():
+        journal = json.loads(p["apply_journal_json"])
+        phase = journal.get("phase")
+        if phase == "applying":
+            rollback_apply(store, journal.get("snapshot") or {})
+        store.finish_interrupted_apply(p["id"], "failed", {
+            "phase": "recovered", "from_phase": phase,
+            "run_id": journal.get("run_id"),
+            "recovered_at": datetime.datetime.now().isoformat(timespec="seconds")})
+        recovered.append({"id": p["id"], "from_phase": phase})
+    return recovered
 
 
 def _reload_ontology() -> None:

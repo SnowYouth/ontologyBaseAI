@@ -148,7 +148,8 @@ CREATE TABLE IF NOT EXISTS proposal (
     regression_ok     INTEGER,
     tombstone_hit     INTEGER DEFAULT 0,
     tombstone_note    TEXT,
-    status            INTEGER DEFAULT 1  -- soft delete flag (1=active, 0=deleted, MVP unused)
+    status            INTEGER DEFAULT 1, -- soft delete flag (1=active, 0=deleted, MVP unused)
+    apply_journal_json TEXT              -- apply 进行中的落盘日志 (见 save_apply_snapshot)
 );
 CREATE INDEX IF NOT EXISTS idx_proposal_review ON proposal (review_status, patch_status);
 
@@ -223,7 +224,14 @@ class OntologyStore:
         self._conn = sqlite3.connect(path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """给老库补列: CREATE TABLE IF NOT EXISTS 对已存在的表不补新列。"""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(proposal)")}
+        if "apply_journal_json" not in cols:
+            self._conn.execute("ALTER TABLE proposal ADD COLUMN apply_journal_json TEXT")
 
     def close(self) -> None:
         self._conn.close()
@@ -774,7 +782,8 @@ class OntologyStore:
         判断和写入必须是同一条条件 UPDATE (跨连接也成立, 端点每请求一个连接)。
         """
         cur = self._conn.execute(
-            "UPDATE proposal SET patch_status='applied' WHERE id=? "
+            "UPDATE proposal SET patch_status='applied', "
+            "apply_journal_json='{\"phase\": \"claimed\"}' WHERE id=? "
             "AND review_status='approved' AND patch_status='pending'",
             (proposal_id,))
         self._conn.commit()
@@ -783,17 +792,49 @@ class OntologyStore:
     def release_apply_claim(self, proposal_id: int) -> None:
         """退还占位 (applied → pending): handler 自己拒绝/抛异常时用, 留着能重试。"""
         self._conn.execute(
-            "UPDATE proposal SET patch_status='pending' WHERE id=? "
-            "AND patch_status='applied'", (proposal_id,))
+            "UPDATE proposal SET patch_status='pending', apply_journal_json=NULL "
+            "WHERE id=? AND patch_status='applied'", (proposal_id,))
+        self._conn.commit()
+
+    def save_apply_snapshot(self, proposal_id: int, snapshot: dict,
+                            run_id: str | None) -> None:
+        """落库**之前**把回滚快照写盘 (phase=applying)。
+
+        ★ 回归门要重跑 CQ (几分钟)。进程在这期间被杀, 内存里的快照跟着没了,
+        except 也跑不到 → 边留在库里、提议停在 applied 却从没过闸。快照落盘后,
+        下次启动的 recover_interrupted_applies 能照它精确回滚。
+        """
+        self._conn.execute(
+            "UPDATE proposal SET apply_journal_json=? WHERE id=?",
+            (json.dumps({"phase": "applying", "run_id": run_id, "snapshot": snapshot},
+                        ensure_ascii=False), proposal_id))
+        self._conn.commit()
+
+    def list_interrupted_applies(self) -> list[dict]:
+        """apply 没走到终态的提议 (journal 还在 claimed/applying)。"""
+        rows = self._conn.execute(
+            "SELECT * FROM proposal WHERE apply_journal_json IS NOT NULL "
+            "AND json_extract(apply_journal_json, '$.phase') IN ('claimed', 'applying') "
+            "ORDER BY id").fetchall()
+        return [dict(r) for r in rows]
+
+    def finish_interrupted_apply(self, proposal_id: int, patch_status: str,
+                                 journal: dict) -> None:
+        """崩溃恢复的收尾: 置终态, journal 改成 recovered 留痕 (不清空, 人能查到为什么 failed)。"""
+        self._conn.execute(
+            "UPDATE proposal SET patch_status=?, regression_ok=?, apply_journal_json=? "
+            "WHERE id=?",
+            (patch_status, 0 if patch_status == "failed" else None,
+             json.dumps(journal, ensure_ascii=False), proposal_id))
         self._conn.commit()
 
     def patch_proposal_patch_status(self, proposal_id: int, patch_status: str,
                                     regression_run_id: str | None = None,
                                     regression_ok: int | None = None) -> None:
-        """更新落地状态和回归结果。"""
+        """更新落地状态和回归结果 (终态, 同时清掉 apply journal)。"""
         self._conn.execute(
             "UPDATE proposal SET patch_status=?, regression_run_id=?, "
-            "regression_ok=? WHERE id=?",
+            "regression_ok=?, apply_journal_json=NULL WHERE id=?",
             (patch_status, regression_run_id, regression_ok, proposal_id))
         self._conn.commit()
 
