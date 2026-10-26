@@ -67,8 +67,28 @@ def _get_conv(sid: str) -> Conversation:
     return _cache[sid]
 
 
+def _recover_interrupted_applies() -> None:
+    """启动时回滚上次进程中途死掉的 apply (见 apply.recover_interrupted_applies)。
+
+    ★ 失败只记日志不阻塞启动: 恢复不了的提议仍挂着 journal, 下次启动再试。
+    """
+    from capabilities.ontology.selfevolve.apply import recover_interrupted_applies
+    try:
+        store = _selfevolve_store()
+        try:
+            recovered = recover_interrupted_applies(store)
+        finally:
+            store.close()
+        if recovered:
+            log_event("selfevolve.apply_recovered", {"proposals": recovered})
+    except Exception as e:
+        log_event("selfevolve.apply_recover_error", {"error": f"{type(e).__name__}: {e}"})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 先恢复再加载运行时: 回滚后的本体才是 agent 该看到的本体
+    _recover_interrupted_applies()
     init_agent_runtime()
     yield
 

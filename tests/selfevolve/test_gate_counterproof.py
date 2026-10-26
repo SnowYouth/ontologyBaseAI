@@ -188,6 +188,36 @@ class TestRegressionGateCounterproof:
         assert p["patch_status"] == "failed"
         assert p["regression_ok"] == 0
 
+    def test_回归门中途进程死_重启服务后坏边被回滚(self, env, monkeypatch):
+        """★ 端到端: 回归门跑到一半进程被杀 → 重启 (lifespan) 必须回滚。
+
+        BaseException 模拟进程被杀: `except Exception` 接不住, 端点那层 rollback
+        一行都不跑 —— 与 Ctrl+C / 被系统杀时库里的状态一致。
+        """
+        pid = _approved_proposal(env["db_path"])
+
+        class Killed(BaseException):
+            pass
+
+        def killed(store, proposal, **kw):
+            raise Killed()
+        monkeypatch.setattr(
+            "capabilities.ontology.selfevolve.apply.run_regression", killed)
+        with pytest.raises(Killed):
+            env["client"].post(f"/selfevolve/proposals/{pid}/apply")
+        assert len(_active_edges(env["db_path"], "a", "b")) == 1, "前提: 崩时边已落库"
+        assert _proposal(env["db_path"], pid)["patch_status"] == "applied"
+
+        import web.app as webapp
+        monkeypatch.setattr(webapp, "init_agent_runtime", lambda: None)
+        with TestClient(webapp.app):       # 进入 lifespan = 重启服务
+            pass
+
+        assert _active_edges(env["db_path"], "a", "b") == [], \
+            "重启后没过闸的边仍在 relation 表"
+        p = _proposal(env["db_path"], pid)
+        assert p["patch_status"] == "failed" and p["regression_ok"] == 0
+
     def test_提议不存在仍返回404(self, env):
         """守 `except HTTPException: raise`: 裸 except Exception 会把 404 吞成 200。"""
         resp = env["client"].post("/selfevolve/proposals/99999/apply")
