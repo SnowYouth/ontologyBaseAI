@@ -121,7 +121,7 @@ CQ (Competency Question) = 考本体建得好不好的问题集。改本体 → 
 
 ```bash
 # 1. 装依赖 (uv 自动建 venv, 走官方源 pypi.org)
-git clone <repo-url> ontologyBaseAI
+git clone https://github.com/SnowYouth/ontologyBaseAI.git
 cd ontologyBaseAI
 uv sync
 # 网络受限可自行选镜像源, 用 UV_DEFAULT_INDEX 环境变量覆盖
