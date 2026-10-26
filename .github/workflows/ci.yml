@@ -1,0 +1,100 @@
+name: CI
+
+# TDD 是本项目的硬规则 (见 CONTRIBUTING.md), CI 是它的执行者:
+# 后端 1099 + 前端 203 测试全绿才算通过。
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: 后端测试 (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 装 uv
+        # 上游只维护到 v7 浮动 tag, v8+ 得写精确版本
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+
+      # Python 版本锁在 .python-version (3.12; 3.13/3.14 兼容性踩过坑)
+      - name: 装依赖
+        run: uv sync --frozen
+
+      # 裸环境即可跑: 测试不需要 .env / embedding 模型 / ontology.db
+      # (已在干净 clone 里验证过)。不给 API key, 所以也不会打真实 LLM。
+      - name: 跑测试
+        run: uv run --frozen pytest -q
+
+  frontend:
+    name: 前端测试 (vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      # v4 是 node20 runtime, Node 20 已从 runner 移除 → 必须 v6 (node24)
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: 装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 测试
+        run: pnpm test
+
+      # build 跑 tsc -b, 顺带把类型错误挡在合并前
+      - name: Build
+        run: pnpm build
+
+  coldstart:
+    name: 冷启动验证 (README 步骤)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 不跑 uv sync: init_ontology.py 的 import 链 (→ ontology_store →
+      # normalize_relations_l1) 全是标准库, 不碰三方包。Linux 上装全量依赖会拉
+      # 整个 CUDA 栈 (torch 拖的, ~2.9GB), 这个 job 一点用不上。
+      - name: 装 Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      # README 第 4 步: 没有 .env / 没装依赖, 也要能建出种子本体库
+      - name: 建本体库
+        run: python scripts/init_ontology.py
+
+      - name: 校验建库结果
+        run: |
+          test -f capabilities/ontology/ontology.db || { echo "ontology.db 没建出来"; exit 1; }
+          python -c "
+          import sqlite3
+          c = sqlite3.connect('capabilities/ontology/ontology.db')
+          n = c.execute('select count(*) from entity').fetchone()[0]
+          assert n > 0, 'entity 表是空的'
+          print(f'种子本体 OK: {n} 个实体')
+          "

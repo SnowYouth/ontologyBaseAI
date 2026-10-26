@@ -1,0 +1,109 @@
+{
+  "_comment": "脱敏示例本体 (图书馆域) — 供 clone 后冷启动。真实业务本体含客户表名, 不进 git。",
+  "domains": [
+    {"code": "READER", "color": "#4a90d9", "displayOrder": 1, "description": "读者与借阅"},
+    {"code": "CATALOG", "color": "#7ac143", "displayOrder": 2, "description": "书目与馆藏"},
+    {"code": "ORG", "color": "#e8a33d", "displayOrder": 3, "description": "分馆与出版社"}
+  ],
+  "entities": [
+    {"id": "reader", "entityCode": "READER", "displayName": "读者", "domain": "READER",
+     "maps_to": "lib_reader", "data_source": "lib", "tables": ["lib_reader"],
+     "summary": "办证读者, 一人一证。",
+     "attributes": [
+       {"name": "reader_id", "desc": "读者证号 (主键)"},
+       {"name": "reader_name", "desc": "读者姓名"},
+       {"name": "reader_status", "desc": "证件状态", "hasEnum": true},
+       {"name": "branch_id", "desc": "办证分馆"}
+     ]},
+    {"id": "loan", "entityCode": "LOAN", "displayName": "借阅记录", "domain": "READER",
+     "maps_to": "lib_loan", "data_source": "lib", "tables": ["lib_loan"],
+     "summary": "一次借出即一行; 读者与馆藏副本之间的桥表。",
+     "attributes": [
+       {"name": "loan_id", "desc": "借阅流水号 (主键)"},
+       {"name": "reader_id", "desc": "借阅人"},
+       {"name": "copy_id", "desc": "借出的副本"},
+       {"name": "loan_date", "desc": "借出日期"},
+       {"name": "due_date", "desc": "应还日期"},
+       {"name": "return_date", "desc": "实还日期, 未还为空"},
+       {"name": "loan_status", "desc": "借阅状态", "hasEnum": true}
+     ]},
+    {"id": "copy", "entityCode": "COPY", "displayName": "馆藏副本", "domain": "CATALOG",
+     "maps_to": "lib_copy", "data_source": "lib", "tables": ["lib_copy"],
+     "summary": "一本实体书 = 一个副本; 同一书目可有多个副本。",
+     "attributes": [
+       {"name": "copy_id", "desc": "副本条码 (主键)"},
+       {"name": "book_id", "desc": "所属书目"},
+       {"name": "branch_id", "desc": "所在分馆"},
+       {"name": "copy_status", "desc": "副本状态", "hasEnum": true}
+     ]},
+    {"id": "book", "entityCode": "BOOK", "displayName": "书目", "domain": "CATALOG",
+     "maps_to": "lib_book", "data_source": "lib", "tables": ["lib_book"],
+     "summary": "书目级信息 (ISBN 粒度), 不是实体书。",
+     "attributes": [
+       {"name": "book_id", "desc": "书目号 (主键)"},
+       {"name": "isbn", "desc": "ISBN"},
+       {"name": "title", "desc": "书名"},
+       {"name": "publisher_id", "desc": "出版社"}
+     ]},
+    {"id": "branch", "entityCode": "BRANCH", "displayName": "分馆", "domain": "ORG",
+     "maps_to": "lib_branch", "data_source": "lib", "tables": ["lib_branch"],
+     "summary": "图书馆分馆。",
+     "attributes": [
+       {"name": "branch_id", "desc": "分馆号 (主键)"},
+       {"name": "branch_name", "desc": "分馆名称"}
+     ]},
+    {"id": "publisher", "entityCode": "PUBLISHER", "displayName": "出版社", "domain": "ORG",
+     "maps_to": "lib_publisher", "data_source": "lib", "tables": ["lib_publisher"],
+     "summary": "出版社。",
+     "attributes": [
+       {"name": "publisher_id", "desc": "出版社号 (主键)"},
+       {"name": "publisher_name", "desc": "出版社名称"}
+     ]}
+  ],
+  "relations": [
+    {"source": "reader", "target": "loan", "source_col": "reader_id", "target_col": "reader_id",
+     "type": "ONE_TO_MANY", "label": "读者的借阅记录"},
+    {"source": "loan", "target": "copy", "source_col": "copy_id", "target_col": "copy_id",
+     "type": "MANY_TO_ONE", "label": "借阅指向的副本"},
+    {"source": "copy", "target": "book", "source_col": "book_id", "target_col": "book_id",
+     "type": "MANY_TO_ONE", "label": "副本所属书目"},
+    {"source": "book", "target": "publisher", "source_col": "publisher_id", "target_col": "publisher_id",
+     "type": "MANY_TO_ONE", "label": "书目的出版社"},
+    {"source": "copy", "target": "branch", "source_col": "branch_id", "target_col": "branch_id",
+     "type": "MANY_TO_ONE", "label": "副本所在分馆"},
+    {"source": "reader", "target": "branch", "source_col": "branch_id", "target_col": "branch_id",
+     "type": "MANY_TO_ONE", "label": "读者办证分馆"},
+    {"source": "loan", "target": "reader", "source_col": "reader_id", "target_col": "reader_id",
+     "type": "MANY_TO_ONE", "label": "借阅记录的借阅人"},
+    {"source": "book", "target": "copy", "source_col": "book_id", "target_col": "book_id",
+     "type": "ONE_TO_MANY", "label": "书目的全部副本"}
+  ],
+  "enum_values": [
+    {"entity": "reader", "field": "reader_status", "name": "读者证状态",
+     "codes": [{"code": "1", "label": "正常"}, {"code": "2", "label": "挂失"}, {"code": "3", "label": "注销"}]},
+    {"entity": "loan", "field": "loan_status", "name": "借阅状态",
+     "codes": [{"code": "0", "label": "借出中"}, {"code": "1", "label": "已归还"}, {"code": "2", "label": "逾期未还"}]},
+    {"entity": "copy", "field": "copy_status", "name": "副本状态",
+     "codes": [{"code": "A", "label": "在架"}, {"code": "B", "label": "已借出"}, {"code": "C", "label": "维修中"}]},
+    {"entity": "book", "field": "isbn", "name": "ISBN 规格", "codes": []}
+  ],
+  "filter_rules": [
+    {"entity": "reader", "col": "reader_status", "op": "=", "value": "1",
+     "mode": "soft", "origin": "manual"},
+    {"entity": "copy", "col": "copy_status", "op": "!=", "value": "C",
+     "mode": "soft", "origin": "manual"}
+  ],
+  "concepts": [
+    {"concept": {"id": "overdue_loan", "display_name": "逾期借阅", "anchor_entity": "loan",
+                 "summary": "应还日期已过且尚未归还的借阅记录。", "origin": "manual"},
+     "conditions": [
+       {"entity": "loan", "col": "return_date", "op": "IS NULL", "value": "", "seq": 0},
+       {"entity": "loan", "col": "loan_status", "op": "=", "value": "2", "seq": 1}
+     ]},
+    {"concept": {"id": "active_reader", "display_name": "在册读者", "anchor_entity": "reader",
+                 "summary": "证件状态正常的读者。", "origin": "manual"},
+     "conditions": [
+       {"entity": "reader", "col": "reader_status", "op": "=", "value": "1", "seq": 0}
+     ]}
+  ]
+}

@@ -1,0 +1,11 @@
+# 已废弃的 env 变量名 — git 跟踪文件里不许再出现。
+# 2026-10-15 LLM 层重构后, 模型三要素的真相源是 config/model.json
+# (core/model_config.py 读写, 前端"设置→模型"页可改且热生效),
+# 这几个名字在 core/config.py 里已经不存在, 代码/文档里再写就是误导读者。
+#
+# 这个文件是 test_deprecated_env.py 的唯一豁免路径 (精确匹配)。
+AGENT_PROVIDER
+AGENT_MODEL
+ANTHROPIC_API_KEY
+ANTHROPIC_BASE_URL
+DEEPSEEK_API_KEY

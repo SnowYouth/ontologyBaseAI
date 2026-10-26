@@ -1,0 +1,13 @@
+[
+  {
+    "name": "notes-writer",
+    "command": "uv",
+    "args": [
+      "run",
+      "python",
+      "-m",
+      "agent.mcp_server.server"
+    ],
+    "enabled": true
+  }
+]

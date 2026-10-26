@@ -1,0 +1,107 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets — 永远不要 commit
+.env
+.env.*
+!.env.example
+
+# 模型配置 (前端 ⚙ 设置 → 🧠 模型 写的就是这个文件): 含 api_key 明文。
+# 跟 agent/config/*.json 的区别就在这 —— 那几个是能力开关故进 git, 这个不进。
+# 缺文件时 core/model_config.py 用 .env 的 PRIMARY_* 合成一条候选, clone
+# 下来照 README 配 .env 即可跑, 不缺这个文件。
+config/model.json
+
+# 阶段 6 OBDA: 真实 BSS 库 (LIB) 的表名/字段/DDL/枚举码字典等敏感资产
+# 绝不进 git / 沉淀, 三连沉淀只出脱敏通识版。commit 前必 git status 核对此目录不在暂存区。
+kg_private/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local models (从 ModelScope/HF 下载的,体积大,不进 git)
+models/
+
+# Chroma 持久化目录 (本地知识库, 个人数据)
+chroma_db/
+
+# Observability JSONL 日志 (每次跑程序一份, 本地排查用)
+logs/
+
+# 阶段 3: 会话 JSONL 落盘目录 (用户对话历史, 个人数据不进 git)
+# 锚到根, 别误伤 frontend/src/features/sessions/ (前端 session 模块, 源码要进 git)
+/sessions/
+
+# 阶段 3: 前端构建产物 + 依赖 (源码进 git, 产物/依赖不进)
+frontend/node_modules/
+frontend/dist/
+
+# 手动 smoke 脚本: 脚本本身要进 git (跨机器复用 + 别人 clone 后能跑),
+# 仅排除输出产物目录 (有就忽略, 没有也不影响; pytest 收集靠文件名/conftest, 跟 git 跟踪无关)
+tests/manual/output/
+
+# superpowers brainstorming visual companion (浏览器 mockup 会话状态)
+.superpowers/
+.gstack/
+
+# 阶段 4: MCP write_file 工具的 AI 写入沙箱产物 (运行产物, 不进 git)
+notes_ai/
+
+# 方向2: 本体 SQLite 库文件 (代码进 git, 库数据文件不进 — 含真实表名)
+# 冷启动走 scripts/init_ontology.py 从 seed 建库 (见 2026-09-23 重构);
+# 原 migrate_to_store.py 已删: 它要的三个源 json 从未进过 git, 且只产出
+# 15 实体/19 关系的雏形, 当前库 58 实体 —— 它重建不了当前库。
+capabilities/ontology/*.db
+capabilities/ontology/*.db-journal
+capabilities/ontology/*.db-wal
+# 迁移前快照 .db.bak-<主题>: 上面的 *.db 匹配不到 (后缀在 .db 之后), 曾因此意外
+# 进过 git。新快照一律不进; 已跟踪的 5 个是既成事实, 保留不动 (2026-08-28 拍板)。
+capabilities/ontology/*.db.bak-*
+
+# 手动取证脚本的跑分产物 (每次跑都变, 结论进 journal/memory 不进 git)
+tests/manual/*.result.json
+
+# corpus/ 是 RAG 的输入目录, 整个不进 git (2026-10-15 拍板): 知识库是使用者
+# 自己的事, 项目不替你决定索引什么。目录本身用 .gitkeep 占位, 内容按需自己放。
+# 曾经这里存着 guides/ 的 7 份 GUIDE 副本当示例语料 (约 270KB), 已随本次清掉。
+corpus/*
+!corpus/.gitkeep
+
+# 运行日志 (每跑一次就变, 不进 git)
+*.log
+
+.claude/
+
+# 个人过程记录 (学习笔记 / 设计过程 / 本地取证), 不进 git。
+# 归类口径: guides/ corpus/ 进, journal/ 不进。journal/ 内有独立本地 git 仓,
+# 父仓必须挡住, 否则会把 journal/.git 当 gitlink 收进来。
+journal/
+
+# 取证脚本 (2026-10-15 开源发布拍板: explore_/verify_ 是过程产物, 出 git;
+# smoke_ 是能力验证, 别人配好自己的库能跑, 留在 git)。
+tests/manual/explore_*
+tests/manual/verify_*
+
+# 一次性脚本的输入 json (脚本本身已删)。按整目录 glob 挡, 不写具体文件名。
+# 本目录本来就没有该进 git 的 json: 本体权威源是 ontology.db, 冷启动 seed 在 scripts/。
+capabilities/ontology/*.json
+
+# 脱敏闸的明文黑名单只留本机, 公开仓只放 _denylist_sha256.txt
+tests/_denylist.txt
+
+# 本机 AI 协作说明, 只留本机
+CLAUDE.md

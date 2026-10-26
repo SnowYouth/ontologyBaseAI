@@ -1,0 +1,26 @@
+# 编辑器基线 (https://editorconfig.org) — 跨 Windows/Linux/macOS 保持一致。
+# 只描述仓库现有风格, 不引入格式化工具。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{ts,tsx,js,jsx,json,css,html,yml,yaml}]
+indent_size = 2
+
+[*.md]
+# Markdown 行尾双空格是硬换行语法, 不能裁
+trim_trailing_whitespace = false
+
+[*.{bat,cmd,ps1}]
+end_of_line = crlf
+
+[{uv.lock,pnpm-lock.yaml,package-lock.json}]
+indent_style = unset
+indent_size = unset
+insert_final_newline = unset

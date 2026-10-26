@@ -1,0 +1,8 @@
+{
+  "list_dir": {
+    "enabled": true
+  },
+  "read_file": {
+    "enabled": true
+  }
+}

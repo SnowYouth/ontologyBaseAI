@@ -1,0 +1,56 @@
+{
+  "_comment": "脱敏示例考题集 (图书馆域) — 与 scripts/seed_ontology.json 同域, 供 clone 后冷启动。真实业务考题集含客户表名, 不进 git。",
+  "cases": [
+    {
+      "id": "CQ-1",
+      "question": "读者 R001 当前借着哪些书? 给出书名。",
+      "kind": "single",
+      "turns": null,
+      "criteria": {
+        "点名": "reader, loan, copy, book",
+        "走边": "reader→loan (reader_id) → copy (copy_id) → book (book_id), 三跳取 book.title",
+        "值集": "loan.loan_status='0' 借出中 (不是 '1' 已归还)",
+        "断腿": "无"
+      }
+    },
+    {
+      "id": "CQ-2",
+      "question": "《百年孤独》在各分馆分别有几个在架副本?",
+      "kind": "single",
+      "turns": null,
+      "criteria": {
+        "点名": "book, copy, branch",
+        "走边": "book→copy (book_id) → branch (branch_id), 按 branch.branch_name 分组计数",
+        "值集": "copy.copy_status='A' 在架 (不是 'B' 已借出 / 'C' 维修中)",
+        "断腿": "无"
+      }
+    },
+    {
+      "id": "CQ-3",
+      "question": "我借的书什么时候到期?",
+      "kind": "single",
+      "turns": null,
+      "criteria": {
+        "点名": "reader, loan",
+        "走边": "reader→loan (reader_id), 取 loan.due_date",
+        "值集": "无",
+        "断腿": "未给读者号, agent 应回问而非猜测或全表查"
+      }
+    },
+    {
+      "id": "CQ-4",
+      "question": "先问读者 R001 有无逾期未还, 再追问各本逾期天数 (考第二轮承接上一轮的读者与结果集)。",
+      "kind": "multi_turn",
+      "turns": [
+        "读者 R001 有没有逾期未还的书?",
+        "那分别逾期多少天?"
+      ],
+      "criteria": {
+        "点名": "reader, loan",
+        "走边": "reader→loan (reader_id); 第二轮不许重新问读者号, 应沿用第一轮的 reader_id",
+        "值集": "按 overdue_loan 概念口径: loan.return_date IS NULL 且 loan.loan_status='2' 逾期未还",
+        "断腿": "无 (本题考第二轮承接上下文, 第二轮的 '那' 指第一轮的逾期借阅)"
+      }
+    }
+  ]
+}

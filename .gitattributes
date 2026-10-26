@@ -1,0 +1,47 @@
+# 换行符: 仓库里一律存 LF, Windows 检出时由 core.autocrlf 决定工作区形态。
+# 项目在 Windows 上开发, 没这条的话 Linux/macOS 协作者会收到整文件 CRLF diff。
+* text=auto eol=lf
+
+# 显式标注文本类型 (避免启发式误判)
+*.py     text eol=lf
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.js     text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.toml   text eol=lf
+*.sql    text eol=lf
+*.css    text eol=lf
+*.html   text eol=lf
+.env.example text eol=lf
+
+# Windows 脚本必须 CRLF, 否则 cmd/PowerShell 可能解析异常
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# 二进制 / 不做换行转换, 也不参与 diff
+*.db     binary
+*.sqlite binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.svg    text eol=lf
+*.woff   binary
+*.woff2  binary
+*.pdf    binary
+*.safetensors binary
+*.bin    binary
+
+# lockfile: 算生成物, 折叠 diff 且不计入语言统计
+uv.lock              linguist-generated=true -diff
+pnpm-lock.yaml       linguist-generated=true -diff
+package-lock.json    linguist-generated=true -diff
+
+# guides/ 与 corpus/ 是文档, 别让它们主导 GitHub 的语言饼图
+corpus/** linguist-documentation=true
+guides/** linguist-documentation=true
