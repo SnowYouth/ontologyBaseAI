@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   listProposals, reviewProposal, processSignalsStream, applyProposal,
   listRelationHealth, runCqRegression, proposeRetireFromHealth,
@@ -6,10 +6,40 @@ import {
 } from "../api";
 import OntoModal from "./OntoModal";
 import {
-  proposalSummary, probeBadge, directionBadge,
+  proposalSummary, probeBadge, probeDetail, directionBadge,
   applyDisabled, applyTooltip, sortHealth, cqRegressionMessage,
-  requiresReviewLabel, reviewLabelError,
+  requiresReviewLabel, reviewLabelError, type ProbeDetail,
 } from "../proposalView";
+
+/** 探针证据展开行: checks (过/不过 + 阈值) + evidence 原始数字。 */
+function ProbeDetailRow({ id, d }: { id: number; d: ProbeDetail }) {
+  return (
+    <tr className="pp-probe-row">
+      <td colSpan={9} id={`pp-probe-${id}`}>
+        <div className="pp-probe-detail">
+          <span className="pp-probe-verdict">verdict: {d.verdict}</span>
+          {d.checks.length > 0 && (
+            <ul className="pp-probe-checks">
+              {d.checks.map((c) => (
+                <li key={c.name} className={c.ok ? "pp-ok" : "pp-bad"}>
+                  <span aria-label={c.ok ? "通过" : "不通过"}>{c.ok ? "✓" : "✗"}</span>
+                  {" "}<code>{c.name}</code> {c.detail}
+                </li>
+              ))}
+            </ul>
+          )}
+          {d.evidence.length > 0 && (
+            <dl className="pp-probe-evidence">
+              {d.evidence.map(([k, v]) => (
+                <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>
+              ))}
+            </dl>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 // ProposalsPanel — 自演化提议审批 (spec §8 / plan Task 8)。
 // 表格: ID/kind/direction/摘要/原因/探针红绿灯/墓碑/状态/操作。
@@ -30,6 +60,7 @@ export default function ProposalsPanel() {
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [healthOpen, setHealthOpen] = useState(false);
+  const [probeOpenId, setProbeOpenId] = useState<number | null>(null);
   // 通过一条新增边要先填 label (后端硬要求), 弹框收集
   const [labelFor, setLabelFor] = useState<Proposal | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
@@ -145,8 +176,12 @@ export default function ProposalsPanel() {
           <th>探针</th><th>墓碑</th><th>审批</th><th>落地</th><th>操作</th>
         </tr></thead>
         <tbody>
-          {proposals.map((p) => (
-            <tr key={p.id}>
+          {proposals.map((p) => {
+            const detail = probeDetail(p);
+            const open = detail !== null && probeOpenId === p.id;
+            return (
+            <Fragment key={p.id}>
+            <tr>
               <td>#{p.id}</td>
               <td>
                 <span className={`pp-dir pp-dir-${p.direction}`}>
@@ -156,7 +191,16 @@ export default function ProposalsPanel() {
               </td>
               <td title={p.payload_json}>{proposalSummary(p)}</td>
               <td className="pp-reason">{p.reason}</td>
-              <td>{probeBadge(p)}</td>
+              <td>
+                {detail
+                  ? <button className="pp-probe-toggle" aria-expanded={open}
+                            aria-controls={`pp-probe-${p.id}`}
+                            title={open ? "收起探针证据" : "展开探针证据"}
+                            onClick={() => setProbeOpenId(open ? null : p.id)}>
+                      {probeBadge(p)} {open ? "▾" : "▸"}
+                    </button>
+                  : probeBadge(p)}
+              </td>
               <td>
                 {p.tombstone_hit
                   ? <span title={p.tombstone_note ?? ""}>⚠️</span>
@@ -184,7 +228,10 @@ export default function ProposalsPanel() {
                 )}
               </td>
             </tr>
-          ))}
+            {open && <ProbeDetailRow id={p.id} d={detail} />}
+            </Fragment>
+            );
+          })}
           {proposals.length === 0 && (
             <tr><td colSpan={9} className="pp-empty">暂无提议 (先跑查询积累失败信号, 再点"处理信号")</td></tr>
           )}

@@ -419,6 +419,20 @@ body { margin: 0; font-family: system-ui, sans-serif; }
 .pp-dir-add { background: #eff6ff; color: #2563eb; }
 .pp-dir-retire { background: #fef2f2; color: #dc2626; }
 .pp-kind { margin-left: 6px; font-size: 11px; color: #888; }
+.pp-probe-toggle { background: none; border: 1px solid transparent; border-radius: 4px;
+  cursor: pointer; padding: 1px 4px; font-size: 13px; color: #555; }
+.pp-probe-toggle:hover { border-color: #ddd; background: #f8fafc; }
+.pp-probe-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+.pp-probe-row > td { background: #f8fafc; border-top: none; }
+.pp-probe-detail { padding: 6px 10px; font-size: 12px; color: #333; line-height: 1.7; }
+.pp-probe-verdict { font-weight: 600; }
+.pp-probe-checks { list-style: none; margin: 4px 0; padding: 0; }
+.pp-probe-checks .pp-ok > span:first-child { color: #15803d; }
+.pp-probe-checks .pp-bad { color: #b91c1c; }
+.pp-probe-evidence { display: grid; grid-template-columns: max-content auto;
+  gap: 0 12px; margin: 4px 0 0; }
+.pp-probe-evidence dt { color: #666; font-family: monospace; }
+.pp-probe-evidence dd { margin: 0; font-family: monospace; }
 .pp-reason { max-width: 260px; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
 .pp-patch { font-size: 12px; padding: 1px 8px; border-radius: 10px; }

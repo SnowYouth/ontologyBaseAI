@@ -18,15 +18,47 @@ export function proposalSummary(p: Proposal): string {
   return p.payload_json.slice(0, 40);
 }
 
-/** 探针红绿灯: probe_result_json 里的 verdict。 */
-export function probeBadge(p: Proposal): "🟢" | "🔴" | "❔" | "—" {
+/** 探针红绿灯: probe_result_json 里的 verdict。
+ *
+ * manual = 人工取证产的提议 (证据字段不同于探针), 不能落进 ❔ —— ❔ 读起来是"探针坏了"。
+ */
+export function probeBadge(p: Proposal): "🟢" | "🔴" | "✋" | "❔" | "—" {
   if (!p.probe_result_json) return "—";  // retire 提议不走探针
   try {
     const d = JSON.parse(p.probe_result_json) as { verdict?: string };
     if (d.verdict === "pass") return "🟢";
     if (d.verdict === "fail") return "🔴";
+    if (d.verdict === "manual") return "✋";
     return "❔";
   } catch { return "❔"; }
+}
+
+export interface ProbeCheck { name: string; ok: boolean; detail: string }
+export interface ProbeDetail {
+  verdict: string;
+  checks: ProbeCheck[];
+  evidence: [string, string][];
+}
+
+/** 探针证据展开 (审计 #6): emoji 之外, 人填 label 前要看到的原始数字。
+ *
+ * evidence 字段不固定 (探针 vs manual 取证), 按 key 通吃不写死字段名。
+ * 无探针 / 坏 JSON → null, 面板据此不给展开入口。
+ */
+export function probeDetail(p: Proposal): ProbeDetail | null {
+  if (!p.probe_result_json) return null;
+  let d: { verdict?: string; checks?: ProbeCheck[]; evidence?: Record<string, unknown> };
+  try { d = JSON.parse(p.probe_result_json); } catch { return null; }
+  return {
+    verdict: d.verdict ?? "?",
+    checks: (d.checks ?? []).map((c) => ({ name: c.name, ok: !!c.ok, detail: c.detail ?? "" })),
+    evidence: Object.entries(d.evidence ?? {}).map(([k, v]) => [k, fmtEvidence(v)]),
+  };
+}
+
+function fmtEvidence(v: unknown): string {
+  if (typeof v === "number" && !Number.isInteger(v)) return v.toFixed(4);
+  return String(v);
 }
 
 /** direction 徽标文案。 */

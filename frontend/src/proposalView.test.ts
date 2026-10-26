@@ -1,7 +1,7 @@
 // proposalView 纯函数单测 (ProposalsPanel 展示逻辑)。
 import { describe, it, expect } from "vitest";
 import {
-  proposalSummary, probeBadge, directionBadge,
+  proposalSummary, probeBadge, probeDetail, directionBadge,
   applyDisabled, applyTooltip, sortHealth, cqRegressionMessage,
   requiresReviewLabel, reviewLabelError,
 } from "./proposalView";
@@ -53,6 +53,50 @@ describe("probeBadge — 探针红绿灯", () => {
 
   it("坏 JSON → 问号不炸", () => {
     expect(probeBadge(prop({ probe_result_json: "not-json" }))).toBe("❔");
+  });
+
+  it("manual (人工取证) 不许显示成 ❔ —— 那是'探针坏了'的样子", () => {
+    expect(probeBadge(prop({ probe_result_json: '{"verdict":"manual"}' }))).toBe("✋");
+  });
+});
+
+describe("probeDetail — 探针证据展开 (审计 #6: 人据此填 label 并对落库负责)", () => {
+  // 真库 #5 的形状 (数值脱敏前后同构)
+  const pass = JSON.stringify({
+    verdict: "pass",
+    checks: [
+      { name: "inclusion", ok: true, detail: "inclusion_rate=0.8230 >= 0.5" },
+      { name: "null_rate", ok: false, detail: "null_rate=0.6000 <= 0.5" },
+    ],
+    evidence: { inclusion_rate: 0.8229895797702377, null_rate: 0.0, src_rows: 81842 },
+  });
+
+  it("checks 原样带出 (名称/通过与否/阈值说明)", () => {
+    const d = probeDetail(prop({ probe_result_json: pass }))!;
+    expect(d.verdict).toBe("pass");
+    expect(d.checks).toEqual([
+      { name: "inclusion", ok: true, detail: "inclusion_rate=0.8230 >= 0.5" },
+      { name: "null_rate", ok: false, detail: "null_rate=0.6000 <= 0.5" },
+    ]);
+  });
+
+  it("evidence 小数保留 4 位, 整数原样", () => {
+    const d = probeDetail(prop({ probe_result_json: pass }))!;
+    expect(d.evidence).toEqual([
+      ["inclusion_rate", "0.8230"], ["null_rate", "0"], ["src_rows", "81842"],
+    ]);
+  });
+
+  it("manual 只有 evidence 没 checks 也能展开 (字段不固定, 按 key 通吃)", () => {
+    const d = probeDetail(prop({ probe_result_json: JSON.stringify({
+      verdict: "manual", evidence: { join_rows_live: 750 } }) }))!;
+    expect(d.checks).toEqual([]);
+    expect(d.evidence).toEqual([["join_rows_live", "750"]]);
+  });
+
+  it("无探针 / 坏 JSON → null (面板不给展开入口)", () => {
+    expect(probeDetail(prop({ probe_result_json: null }))).toBeNull();
+    expect(probeDetail(prop({ probe_result_json: "not-json" }))).toBeNull();
   });
 });
 
