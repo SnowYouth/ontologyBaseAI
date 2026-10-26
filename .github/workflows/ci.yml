@@ -1,7 +1,7 @@
 name: CI
 
 # TDD 是本项目的硬规则 (见 CONTRIBUTING.md), CI 是它的执行者:
-# 后端 1099 + 前端 203 测试全绿才算通过。
+# 后端 pytest + 前端 vitest 全量测试全绿才算通过。
 on:
   push:
     branches: [main, master]
