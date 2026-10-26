@@ -96,7 +96,9 @@ def _is_blocked(path: str) -> bool:
     """
     extra = _load_blacklist_extra()
     segments = [s for s in path.replace("\\", "/").split("/") if s and s != "."]
-    if segments and segments[0] in _RUNTIME_ARTIFACT_DIRS:
+    # normcase: Windows 下 KG_PRIVATE 也命中。不能只靠 safe_path 的 realpath 兜 ——
+    # 目录不存在时 realpath 不纠正大小写 (干净 clone 无 kg_private 时真漏过)。
+    if segments and os.path.normcase(segments[0]) in _RUNTIME_ARTIFACT_DIRS:
         return True
     for seg in segments:
         if seg in (".", ".."):                        # 路径导航符, 非 dotfile
