@@ -73,6 +73,38 @@ class TestApplyGuard:
         assert out["ok"] is False
         assert "applied" in out["detail"] or "已" in out["detail"]
 
+    def test_拿着过期dict并发apply_第二个抢不到且不碰库(self, store):
+        """★ 审计 #5 TOCTOU: 两个请求先后读到 patch_status=pending 的 dict,
+        第一个已落库并占位后, 第二个不许过闸 —— 否则它拍到 existed=True 之外的
+        快照、回滚时可能硬删第一个已过闸的边 (ontology.db 不进 git, 不可逆)。
+
+        用"过期 dict"确定性复现交错, 不靠线程碰运气。
+        """
+        _approved_relation_proposal(store)
+        stale = store.list_proposals()[0]
+        assert apply_proposal(dict(stale), store)["ok"] is True
+
+        upserts = []
+        orig = store.upsert_relation
+        store.upsert_relation = lambda p: (upserts.append(p), orig(p))[1]
+        out = apply_proposal(dict(stale), store)
+        assert out["ok"] is False
+        assert "applied" in out["detail"] or "已" in out["detail"]
+        assert upserts == [], "抢占失败后还落了库"
+        assert "rollback_snapshot" not in out
+
+    def test_handler抛异常时退还占位(self, store, monkeypatch):
+        """CLI 等直接调用方没有端点那层兜底, 异常后不能卡在 applied 再也重试不了。"""
+        _approved_relation_proposal(store)
+        p = store.list_proposals()[0]
+
+        def boom(_payload):
+            raise RuntimeError("db down")
+        monkeypatch.setattr(store, "upsert_relation", boom)
+        with pytest.raises(RuntimeError):
+            apply_proposal(p, store)
+        assert store.list_proposals()[0]["patch_status"] == "pending"
+
     def test_relation_col无via拒绝(self, store):
         """★ 守卫: payload 缺 via (定位不到边) → 拒绝, 不许静默匹配 0 行。
 

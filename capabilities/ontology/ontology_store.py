@@ -766,6 +766,27 @@ class OntologyStore:
             (json.dumps(payload, ensure_ascii=False), proposal_id))
         self._conn.commit()
 
+    def claim_for_apply(self, proposal_id: int) -> bool:
+        """抢占式占位: approved+pending → applied, 抢到返回 True。
+
+        ★ 审计 #5 TOCTOU (2026-10-27): 守卫若只读调用方传入的 dict, 两个并发
+        apply 都能过闸 → 后者快照 existed=False → 回滚硬删前者已过闸的边。
+        判断和写入必须是同一条条件 UPDATE (跨连接也成立, 端点每请求一个连接)。
+        """
+        cur = self._conn.execute(
+            "UPDATE proposal SET patch_status='applied' WHERE id=? "
+            "AND review_status='approved' AND patch_status='pending'",
+            (proposal_id,))
+        self._conn.commit()
+        return cur.rowcount == 1
+
+    def release_apply_claim(self, proposal_id: int) -> None:
+        """退还占位 (applied → pending): handler 自己拒绝/抛异常时用, 留着能重试。"""
+        self._conn.execute(
+            "UPDATE proposal SET patch_status='pending' WHERE id=? "
+            "AND patch_status='applied'", (proposal_id,))
+        self._conn.commit()
+
     def patch_proposal_patch_status(self, proposal_id: int, patch_status: str,
                                     regression_run_id: str | None = None,
                                     regression_ok: int | None = None) -> None:

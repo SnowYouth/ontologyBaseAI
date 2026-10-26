@@ -52,13 +52,22 @@ def apply_proposal(proposal: dict, store) -> dict:
                           f"direction={proposal.get('direction')}"}
     handler = globals()[handler_name]
 
+    # ★ 上面两条只是快速失败; 真正的闸是库里的条件更新 (审计 #5 TOCTOU):
+    # dict 可能已过期, 并发的另一个请求可能已经落库。抢不到就不许碰库/拍快照。
+    if not store.claim_for_apply(proposal["id"]):
+        return {"ok": False,
+                "detail": "提议已处理过或正被另一个请求 apply (patch_status 已非 pending)"}
     payload = json.loads(proposal.get("payload_json") or "{}")
-    # ★ 落库前拍快照: 回归门 (闸2) 在本函数之后跑, 拒绝时靠它精确还原 (见 rollback_apply)
-    snapshot = _edge_snapshot(store, payload, proposal.get("direction"))
-    out = handler(payload, store)
+    try:
+        # ★ 落库前拍快照: 回归门 (闸2) 在本函数之后跑, 拒绝时靠它精确还原 (见 rollback_apply)
+        snapshot = _edge_snapshot(store, payload, proposal.get("direction"))
+        out = handler(payload, store)
+    except Exception:
+        store.release_apply_claim(proposal["id"])
+        raise
     if not out.get("ok"):
+        store.release_apply_claim(proposal["id"])
         return out
-    store.patch_proposal_patch_status(proposal["id"], "applied")
     out["rollback_snapshot"] = snapshot
     return out
 

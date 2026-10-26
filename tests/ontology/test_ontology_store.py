@@ -1058,6 +1058,26 @@ class TestProposalCRUD:
         assert p["regression_run_id"] == "run-123"
         assert p["regression_ok"] == 1
 
+    def test_claim_for_apply_只有approved且pending能抢到且只抢一次(self, store):
+        """★ 审计 #5 TOCTOU: 抢占是 DB 层条件更新, 第二次必须抢不到。"""
+        pid = store.insert_proposal("relation", {"s": "a"}, "r")
+        assert store.claim_for_apply(pid) is False, "未批准不许抢占"
+        store.patch_proposal_review(pid, "approved")
+        assert store.claim_for_apply(pid) is True
+        assert store.list_proposals()[0]["patch_status"] == "applied"
+        assert store.claim_for_apply(pid) is False, "已占位的不许二次抢占"
+
+    def test_release_apply_claim_只把applied退回pending(self, store):
+        pid = store.insert_proposal("relation", {"s": "a"}, "r")
+        store.patch_proposal_review(pid, "approved")
+        store.patch_proposal_patch_status(pid, "failed")
+        store.release_apply_claim(pid)
+        assert store.list_proposals()[0]["patch_status"] == "failed", \
+            "release 不许改写 failed (只退还自己的占位)"
+        store.patch_proposal_patch_status(pid, "applied")
+        store.release_apply_claim(pid)
+        assert store.list_proposals()[0]["patch_status"] == "pending"
+
     def test_软删proposal不出现在list(self, store):
         pid = store.insert_proposal("relation", {"s": "a"}, "r")
         store._conn.execute("UPDATE proposal SET status=0 WHERE id=?", (pid,))
