@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   proposalSummary, probeBadge, probeDetail, directionBadge,
   applyDisabled, applyTooltip, sortHealth, cqRegressionMessage,
-  requiresReviewLabel, reviewLabelError,
+  requiresReviewLabel, reviewLabelError, recoveredNote,
 } from "./proposalView";
 import type { Proposal, RelationHealth, CqRegressionOut } from "./api";
 
@@ -15,6 +15,7 @@ function prop(patch: Partial<Proposal>): Proposal {
     proposed_at: "t", proposed_by: "probe",
     probe_result_json: null, regression_ok: null,
     tombstone_hit: 0, tombstone_note: null,
+    apply_journal_json: null,
     ...patch,
   };
 }
@@ -222,5 +223,40 @@ describe("reviewLabelError — 人审输入校验 (点通过前拦一道)", () =
 
   it("retire 方向空 label 也放行", () => {
     expect(reviewLabelError(prop({ direction: "retire" }), "")).toBeNull();
+  });
+});
+
+describe("recoveredNote — 崩溃恢复导致的 failed 要和普通 failed 区分开", () => {
+  const recovered = (from_phase: string) => prop({
+    patch_status: "failed",
+    apply_journal_json: JSON.stringify({
+      phase: "recovered", from_phase, run_id: "r1", recovered_at: "2026-10-26T10:00:00",
+    }),
+  });
+
+  it("applying 中断 → 提示已按快照回滚", () => {
+    const n = recoveredNote(recovered("applying"));
+    expect(n).toContain("2026-10-26T10:00:00");
+    expect(n).toContain("回滚");
+  });
+
+  it("claimed 中断 → 提示本体没被改过", () => {
+    const n = recoveredNote(recovered("claimed"));
+    expect(n).toContain("未改动");
+  });
+
+  it("普通 failed (journal 已清空) → null", () => {
+    expect(recoveredNote(prop({ patch_status: "failed" }))).toBeNull();
+  });
+
+  it("journal 是进行中态 (claimed/applying) 不算恢复 → null", () => {
+    expect(recoveredNote(prop({
+      patch_status: "applied",
+      apply_journal_json: JSON.stringify({ phase: "applying" }),
+    }))).toBeNull();
+  });
+
+  it("坏 JSON 不抛 → null", () => {
+    expect(recoveredNote(prop({ patch_status: "failed", apply_journal_json: "{bad" }))).toBeNull();
   });
 });

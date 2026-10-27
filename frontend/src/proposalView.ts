@@ -84,6 +84,22 @@ export function applyTooltip(p: Proposal): string {
     : "落库并跑 CQ 回归门";
 }
 
+/** 崩溃恢复留痕的提示文案 (journal.phase=recovered); 普通 failed / 坏 JSON → null。
+ *
+ * 服务启动时 recover_interrupted_applies 把中断的 apply 置 failed, 不加提示
+ * 就和"回归门没过"的 failed 长得一样, 人会误以为提议本身有问题。
+ */
+export function recoveredNote(p: Proposal): string | null {
+  if (!p.apply_journal_json) return null;
+  let j: { phase?: string; from_phase?: string; recovered_at?: string };
+  try { j = JSON.parse(p.apply_journal_json); } catch { return null; }
+  if (j.phase !== "recovered") return null;
+  const what = j.from_phase === "applying"
+    ? "已按落盘快照回滚本体"
+    : "本体未改动";
+  return `apply 中途进程中断, 启动时自动恢复 (${j.recovered_at ?? "时间未知"}): ${what}, 回归门没跑过 (不代表提议本身有问题)`;
+}
+
 /** payload_json 里的 via (坏 JSON / 缺字段 → 空串)。 */
 function payloadVia(p: Proposal): string {
   try {

@@ -439,6 +439,9 @@ body { margin: 0; font-family: system-ui, sans-serif; }
 .pp-patch-applied { background: #f0fdf4; color: #16a34a; }
 .pp-patch-failed { background: #fef2f2; color: #dc2626; }
 .pp-patch-pending { color: #999; }
+.pp-recovered { margin-left: 4px; font-size: 11px; padding: 1px 6px; border-radius: 10px;
+  background: #fffbeb; color: #92400e; border: 1px dashed #d97706; cursor: help;
+  white-space: nowrap; display: inline-block; }
 .pp-empty { color: #999; text-align: center; padding: 16px 0; }
 .pp-health { margin-top: 18px; border-top: 1px solid #eee; padding-top: 10px; }
 .pp-health-toggle { background: none; border: none; cursor: pointer;

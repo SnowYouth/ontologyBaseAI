@@ -782,6 +782,7 @@ export type Proposal = {
   regression_ok: number | null;
   tombstone_hit: number;
   tombstone_note: string | null;
+  apply_journal_json: string | null;
 };
 
 export type RelationHealth = {

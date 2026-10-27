@@ -8,7 +8,7 @@ import OntoModal from "./OntoModal";
 import {
   proposalSummary, probeBadge, probeDetail, directionBadge,
   applyDisabled, applyTooltip, sortHealth, cqRegressionMessage,
-  requiresReviewLabel, reviewLabelError, type ProbeDetail,
+  requiresReviewLabel, reviewLabelError, recoveredNote, type ProbeDetail,
 } from "../proposalView";
 
 /** 探针证据展开行: checks (过/不过 + 阈值) + evidence 原始数字。 */
@@ -179,6 +179,7 @@ export default function ProposalsPanel() {
           {proposals.map((p) => {
             const detail = probeDetail(p);
             const open = detail !== null && probeOpenId === p.id;
+            const recovered = recoveredNote(p);
             return (
             <Fragment key={p.id}>
             <tr>
@@ -211,6 +212,10 @@ export default function ProposalsPanel() {
                 <span className={`pp-patch pp-patch-${p.patch_status}`}>
                   {p.patch_status}
                 </span>
+                {recovered && (
+                  <span className="pp-recovered" role="note" tabIndex={0}
+                        title={recovered} aria-label={`中断恢复: ${recovered}`}>中断恢复</span>
+                )}
               </td>
               <td>
                 {p.review_status === "pending" && (
