@@ -39,7 +39,10 @@ def build_obqc_index(onto) -> ObqcIndex:
 
     edges: dict = {}
     seen = set()  # 去重: adjacency 双向都记, 同一条边会出现两次
-    for eid, rels in onto.adjacency.items():
+    # 归档继承边 (core.ontology_view._build_archive_edges) 也进校验索引: 否则
+    # get_join_path 给了归档表的路, agent 照着写 JOIN 反被 no_edge 拦
+    all_rels = [*onto.adjacency.items(), *getattr(onto, "archive_edges", {}).items()]
+    for eid, rels in all_rels:
         for rel in rels:
             rid = id(rel)
             if rid in seen:
@@ -56,5 +59,6 @@ def build_obqc_index(onto) -> ObqcIndex:
                 # ★ 自演化 (spec §3.3): 边身份是 (source, target, via) 三元组,
                 # 丢了 via 则 used_edges 带不出去, relation_health 主键不完整
                 "via": rel.get("via"),
+                "inherited": "inherited_from" in rel,
             })
     return ObqcIndex(table_to_entity=table_to_entity, edges=edges)

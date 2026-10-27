@@ -183,8 +183,9 @@ def _check_one_join(eA, eB, la, lcol, ra, rcol, idx) -> tuple[list, list, list]:
                              "target_col": e.get("target_col")} for e in cand],
         })
         hints.append({"kind": "join_col", "entities": [eA, eB], "legal": legal})
-    else:
-        # ★ 自演化: 收集命中的边 (spec §3.2)
+    elif not matched_edge.get("inherited"):
+        # ★ 自演化: 收集命中的边 (spec §3.2)。归档继承边不收: 它不是 relation
+        # 表的行, 记 use_count / 进嫌疑集合都会指向一条不存在的边
         used_edges.append({
             "source": matched_edge.get("source"),
             "target": matched_edge.get("target"),

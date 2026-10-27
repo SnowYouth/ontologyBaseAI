@@ -22,6 +22,74 @@ class Ontology:
     domains: list         # 规范子域元数据 (分组/配色)
     filter_rules: dict    # entity id -> [{col,op,value,mode,origin},...] 默认过滤规则
     concepts: dict = field(default_factory=dict)   # id -> {..., conditions:[...]}
+    # id -> [继承边dict,...] (双向都记); 归档实体从在用实体继承来的 JOIN 边,
+    # 只供 JOIN 寻路/校验, 不是 relation 表里的行 (UI/关系列表只读 adjacency)
+    archive_edges: dict = field(default_factory=dict)
+
+
+def join_edges_of(onto: Ontology, eid: str) -> list:
+    """JOIN 寻路/校验用的边: 登记边 + 归档继承边。"""
+    return [*onto.adjacency.get(eid, []), *onto.archive_edges.get(eid, [])]
+
+
+def _attr_names(entity: dict) -> set:
+    return {(a.get("name") or "").upper() for a in entity.get("attributes") or []}
+
+
+def _inherit_one(rel: dict, live: str, his: str, his_cols: set) -> dict | None:
+    """把在用实体 live 的一条边换成归档实体 his 那端; 归档表缺该列 → None。"""
+    side = "source" if rel["source"] == live else "target"
+    col = rel.get(f"{side}_col")
+    if not rel.get("label") or not col or col.upper() not in his_cols:
+        return None  # 裸边不继承: 同 _collect_related, 只认人审过的正路
+    edge = {**rel, side: his, "inherited_from": rel.get("via"), "bridge_count": None}
+    edge["via"] = f"{edge['source']}.{edge['source_col']}={edge['target']}.{edge['target_col']}"
+    edge["label"] = f"{rel['label']}(归档表沿用 {live} 的边)"
+    return edge
+
+
+def _archive_pk_edges(live_ent: dict, live: str, his: str, his_cols: set) -> list:
+    """X ↔ X_his 同名主键边: 查两表重叠 / 去重计数时要 JOIN 两半。"""
+    pks = {(a.get("name") or "").upper() for a in live_ent.get("attributes") or []
+           if a.get("kind") == "pk"} & his_cols
+    return [{"source": live, "target": his, "source_col": pk, "target_col": pk,
+             "via": f"{live}.{pk}={his}.{pk}", "type": "archive",
+             "label": "同一业务对象的在用/归档两半 (查两表重叠用)",
+             "inherited_from": None, "bridge_count": None} for pk in sorted(pks)]
+
+
+def _build_archive_edges(entities: dict, adjacency: dict) -> dict:
+    """归档实体 `X_his` 继承 `X` 的 JOIN 边 (另加 X↔X_his 同名主键边, 查重叠用)。
+
+    ★ 2026-10-27 CQ-13: 某在用明细实体登记了 22 条边, 它的归档实体只有 5 条
+    (只补了下游工单/回调表指向它的那几条)。agent 按"在用+归档都要查"去拼
+    `归档明细 JOIN 号码实例` 拿号码→账户, 被 obqc no_edge 硬拦, 只能拆成
+    两段手工对齐 —— 这一轮就把一笔付款挂错了账户。归档表与在用表同构 (迁移关系),
+    在用表的边对归档表同样成立; 继承条件:
+    - 归档实体真登记了, 且该端的连接列在归档实体字段里 (字段删减过的表不硬给边)
+    - 只继承带 label 的边; 自关联边跳过; 归档实体与对端已有显式登记边时以登记为准
+    """
+    out: dict = {}
+    for his, his_ent in entities.items():
+        live = his[:-4]
+        if not his.endswith("_his") or live not in entities:
+            continue
+        his_cols = _attr_names(his_ent)
+        explicit = {rel["target"] if rel["source"] == his else rel["source"]
+                    for rel in adjacency.get(his, [])}
+        new: list = []
+        for rel in adjacency.get(live, []):
+            other = rel["target"] if rel["source"] == live else rel["source"]
+            if other in (live, his) or other in explicit:
+                continue
+            edge = _inherit_one(rel, live, his, his_cols)
+            if edge:
+                new.append(edge)
+        new.extend(_archive_pk_edges(entities[live], live, his, his_cols))
+        for edge in new:
+            out.setdefault(edge["source"], []).append(edge)
+            out.setdefault(edge["target"], []).append(edge)
+    return out
 
 
 def build_indexes(raw: dict) -> Ontology:
@@ -49,6 +117,7 @@ def build_indexes(raw: dict) -> Ontology:
         domains=raw.get("domains", []),
         filter_rules=filter_rules,
         concepts=concepts,
+        archive_edges=_build_archive_edges(entities, adjacency),
     )
 
 
@@ -76,7 +145,7 @@ def find_join_paths(onto: Ontology, from_entity: str, to_entity: str) -> list[di
     """
     seen_via: set = set()
     views: list[dict] = []
-    for e in onto.adjacency.get(from_entity, []):
+    for e in join_edges_of(onto, from_entity):
         if not _connects(e, from_entity, to_entity):
             continue
         via = e.get("via")
@@ -185,7 +254,7 @@ def find_join_paths_multi(onto: Ontology, from_entity: str, to_entity: str,
         nxt: list = []
         for cur, path, visited in queue:
             seen_via: set = set()
-            for e in onto.adjacency.get(cur, []):
+            for e in join_edges_of(onto, cur):
                 if e["source"] != cur and e["target"] != cur:
                     continue
                 via = e.get("via")
